@@ -2,6 +2,7 @@ package main
 
 import (
     "context"
+    "crypto/tls"
     "io"
     "log"
     "net/http"
@@ -9,8 +10,8 @@ import (
 )
 
 const (
-    timeout         = 30 * time.Second
-    maxBodySize     = 10 << 20 // 10 MB
+    timeout           = 30 * time.Second
+    maxBodySize       = 10 << 20 // 10 MB
     readHeaderTimeout = 10 * time.Second
 )
 
@@ -19,16 +20,22 @@ type ProxyServer struct {
 }
 
 func NewProxyServer() *ProxyServer {
+    // Create custom transport with TLS config
+    transport := &http.Transport{
+        TLSClientConfig: &tls.Config{
+            InsecureSkipVerify: true, // Only for testing
+        },
+        MaxIdleConns:        100,
+        IdleConnTimeout:     90 * time.Second,
+        DisableCompression:  true,
+        MaxConnsPerHost:     10,
+        DisableKeepAlives:   false,
+    }
+
     return &ProxyServer{
         client: &http.Client{
-            Timeout: timeout,
-            Transport: &http.Transport{
-                MaxIdleConns:        100,
-                IdleConnTimeout:     90 * time.Second,
-                DisableCompression:  true,
-                MaxConnsPerHost:     10,
-                DisableKeepAlives:   false,
-            },
+            Timeout:   timeout,
+            Transport: transport,
         },
     }
 }
@@ -37,7 +44,6 @@ func (p *ProxyServer) ProxyHandler(w http.ResponseWriter, r *http.Request) {
     ctx, cancel := context.WithTimeout(r.Context(), timeout)
     defer cancel()
 
-    // Log the incoming request
     log.Printf("Received Incoming Request: %s %s", r.Method, r.URL)
 
     // Limit the request body size
@@ -60,10 +66,10 @@ func (p *ProxyServer) ProxyHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Selectively copy headers
+    // Copy headers
     copyHeaders(outgoingRequest.Header, r.Header)
 
-    // Send the request to the target server
+    // Send the request
     response, err := p.client.Do(outgoingRequest)
     if err != nil {
         log.Printf("Error sending request: %v", err)
@@ -76,7 +82,6 @@ func (p *ProxyServer) ProxyHandler(w http.ResponseWriter, r *http.Request) {
     copyHeaders(w.Header(), response.Header)
     w.WriteHeader(response.StatusCode)
 
-    // Copy response body with timeout
     written, err := io.Copy(w, response.Body)
     if err != nil {
         log.Printf("Error copying response: %v", err)
@@ -85,23 +90,10 @@ func (p *ProxyServer) ProxyHandler(w http.ResponseWriter, r *http.Request) {
     log.Printf("Successfully proxied %d bytes", written)
 }
 
-// copyHeaders selectively copies headers from src to dst
 func copyHeaders(dst, src http.Header) {
-    // List of headers to forward
-    allowedHeaders := map[string]bool{
-        "Content-Type":     true,
-        "Content-Length":   true,
-        "Accept":          true,
-        "Accept-Encoding": true,
-        "User-Agent":      true,
-        // Add other headers as needed
-    }
-
     for key, values := range src {
-        if allowedHeaders[key] {
-            for _, value := range values {
-                dst.Add(key, value)
-            }
+        for _, value := range values {
+            dst.Add(key, value)
         }
     }
 }
@@ -109,17 +101,32 @@ func copyHeaders(dst, src http.Header) {
 func main() {
     proxy := NewProxyServer()
 
+    // Create TLS configuration
+    tlsConfig := &tls.Config{
+        MinVersion:               tls.VersionTLS12,
+        PreferServerCipherSuites: true,
+        CipherSuites: []uint16{
+            tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+            tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+            tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+            tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+            tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+            tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        },
+    }
+
     server := &http.Server{
-        Addr:              ":8080",
+        Addr:              ":8443",
         Handler:           http.HandlerFunc(proxy.ProxyHandler),
         ReadTimeout:       timeout,
         WriteTimeout:      timeout,
         ReadHeaderTimeout: readHeaderTimeout,
         MaxHeaderBytes:    1 << 20, // 1 MB
+        TLSConfig:        tlsConfig,
     }
 
-    log.Printf("Starting proxy server on port %s", server.Addr)
-    if err := server.ListenAndServe(); err != nil {
+    log.Printf("Starting TLS proxy server on port %s", server.Addr)
+    if err := server.ListenAndServeTLS("certs/cert.pem", "certs/key.pem"); err != nil {
         log.Fatalf("Error starting server: %v", err)
     }
 }
