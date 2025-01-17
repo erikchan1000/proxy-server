@@ -57,23 +57,23 @@ const (
 1. Start the server:
 
 ```bash
-./proxy-server
+go run main.go
 ```
 
-The server will start on port 8080 by default.
+The server will start on port 8443 by default.
 
 2. Make requests through the proxy:
 
 ```bash
 # Basic GET request
-curl -v "http://localhost:8080/get" -H "Host: httpbin.org"
+curl -v "https://localhost:8443/get" -H "Host: httpbin.org"
 
 # POST request with data
 curl -v -X POST \
     -H "Content-Type: application/json" \
     -H "Host: httpbin.org" \
     -d '{"test": "data"}' \
-    "http://localhost:8080/post"
+    "http://localhost:8443/post"
 ```
 
 ## Testing
@@ -84,14 +84,20 @@ The repository includes several curl commands for testing different scenarios:
 
 ```bash
 # Test GET request
-curl -v "http://localhost:8080/get" -H "Host: httpbin.org"
+curl -v "http://localhost:8443/get" -H "Host: httpbin.org"
 
 # Test POST request
 curl -v -X POST \
     -H "Content-Type: application/json" \
     -H "Host: httpbin.org" \
     -d '{"test": "data"}' \
-    "http://localhost:8080/post"
+    "http://localhost:8443/post"
+```
+
+# Test Script
+
+```bash
+./test.sh
 ```
 
 ### Load Testing
@@ -99,7 +105,7 @@ curl -v -X POST \
 ```bash
 # Run multiple concurrent requests
 for i in {1..10}; do
-    curl -v "http://localhost:8080/get" -H "Host: httpbin.org" &
+    curl -v "http://localhost:8443/get" -H "Host: httpbin.org" &
 done
 ```
 
@@ -175,10 +181,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Roadmap
 
-- [ ] Add TLS support
 - [ ] Implement rate limiting
 - [ ] Add metrics endpoint
-- [ ] Enhance logging
 - [ ] Add configuration file support
 - [ ] Docker support
 
